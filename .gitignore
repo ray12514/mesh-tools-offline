@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+/dist/
+/sources/
+/mesh-tools/
+/mesh-tools-offline.tar.gz
+/mesh-tools-offline.tar.gz.sha256
+/cluster.ini
