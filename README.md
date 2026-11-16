@@ -4,15 +4,37 @@ Build Gmsh 4.15.2 and ADMesh 0.98.5 on the target Linux cluster. Gmsh runs headl
 
 ## Get the transfer bundle
 
-The GitHub release includes both source archives, the installer, and the home and shared-site configurations. Download the two release assets on a machine with access to the repository and transfer them together. [Download the release](https://github.com/ray12514/mesh-tools-offline/releases/latest)
+The v0.1.0 bundle contains the Gmsh 4.15.2 and ADMesh 0.98.5 source tarballs, the installer, `home.ini` and `site.ini`. Run this in a writable directory on any machine with GitHub access to download the bundle and its checksum together. [Release v0.1.0](https://github.com/ray12514/mesh-tools-offline/releases/tag/v0.1.0)
 
 ```sh
-gh release download v0.1.0 --repo ray12514/mesh-tools-offline --pattern 'mesh-tools-offline.tar.gz*'
+mesh_release=https://github.com/ray12514/mesh-tools-offline/releases/download/v0.1.0
+curl -fL --retry 3 \
+  -O "$mesh_release/mesh-tools-offline.tar.gz" \
+  -O "$mesh_release/mesh-tools-offline.tar.gz.sha256"
 ```
 
-## Prepare a bundle from the repository
+If you downloaded on a separate machine, transfer `mesh-tools-offline.tar.gz` and `mesh-tools-offline.tar.gz.sha256` together to the cluster. From the directory containing those two files, continue with [Build on the target](#build-on-the-target).
 
-On any machine with Python 3.6+ and access to both upstream sites, run this from the installer directory.
+## Clone or update the installer with Git (optional)
+
+To get a working copy of the installer scripts and configurations, clone the public repository over HTTPS.
+
+```sh
+git clone https://github.com/ray12514/mesh-tools-offline.git
+cd mesh-tools-offline
+```
+
+For later updates, run this inside the existing `mesh-tools-offline/` checkout.
+
+```sh
+git pull --ff-only
+```
+
+The Git checkout contains the scripts, configurations and pinned source checksums. Run the installer from the extracted `mesh-tools/` directory, where `sources/` contains both package tarballs.
+
+### Prepare a bundle from the repository
+
+To make a fresh bundle from the checkout, run this on a machine with Python 3.6+, `curl` and access to both upstream sites. It fetches and verifies both package tarballs in one run.
 
 ```sh
 python3 prepare.py --output mesh-tools-offline.tar.gz
@@ -31,9 +53,9 @@ Transfer the resulting archive and its `.sha256` file. Both prepare and install 
 Use a Linux build node with the target OS and CPU baseline. It needs Python 3.6+, Bash, a C99/C++14 compiler toolchain, CMake 3.15+, GNU Make, tar/gzip, awk, coreutils, readelf, ldd and Lmod or Environment Modules. The compiler runtimes and installation paths must also be visible on the compute nodes. No root access, package manager or network is needed during installation.
 
 ```sh
-sha256sum -c mesh-tools-offline.tar.gz.sha256
-tar -xzf mesh-tools-offline.tar.gz
-cd mesh-tools
+sha256sum -c mesh-tools-offline.tar.gz.sha256 &&
+  tar -xzf mesh-tools-offline.tar.gz &&
+  cd mesh-tools
 ```
 
 ### First run in your home directory
