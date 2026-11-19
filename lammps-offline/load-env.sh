@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Source with a compiler lane (gnu or cray) and a target (cpu or gpu).
+# The build passes an optional file to record the selected runtime modules.
 case "$1" in
     gnu) prgenv=${PRGENV_MODULE:-PrgEnv-gnu} ;;
     cray) prgenv=${PRGENV_MODULE:-PrgEnv-cray} ;;
@@ -37,15 +38,22 @@ for loaded in "${loaded_modules[@]}"; do
             ;;
     esac
 done
-module load "$prgenv" "${CRAY_MPI_MODULE:-cray-mpich}" || return 1
+mpi_module=${CRAY_MPI_MODULE:-cray-mpich}
+module load "$prgenv" "$mpi_module" || return 1
+runtime_modules=("$prgenv" "$mpi_module")
 read -r -a site_modules <<< "${CRAY_EXTRA_MODULES-libfabric xpmem}"
 if ((${#site_modules[@]})); then
     module load "${site_modules[@]}" || return 1
 fi
 if [[ $2 == gpu ]]; then
-    module load "${CUDA_MODULE:-cuda/12.9}" "${ACCEL_MODULE:-craype-accel-nvidia90}" || return 1
+    cuda_module=${CUDA_MODULE:-cuda/12.9}
+    module load "$cuda_module" "${ACCEL_MODULE:-craype-accel-nvidia90}" || return 1
+    runtime_modules+=("$cuda_module")
 fi
 if [[ -n ${CMAKE_MODULE:-} ]]; then
     module load "$CMAKE_MODULE" || return 1
 fi
-unset prgenv init loaded loaded_modules site_modules
+if [[ -n ${3:-} ]]; then
+    printf '%s\n' "${LOADEDMODULES:-}" "${runtime_modules[@]}" > "$3" || return 1
+fi
+unset prgenv mpi_module cuda_module init loaded loaded_modules site_modules runtime_modules

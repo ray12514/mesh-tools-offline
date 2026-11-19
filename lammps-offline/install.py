@@ -50,6 +50,41 @@ def offline_flags(source):
             *[f"-D{name}:BOOL=OFF" for name in sorted(options)]]
 
 
+def runtime_modules(record):
+    loaded_line, *requested = record.read_text().splitlines()
+    loaded = loaded_line.split(":")
+    required = [next((name for name in loaded if name == module or
+                      name.rpartition("/")[0] == module), module) for module in requested]
+    required.extend(name for name in loaded if name.partition("/")[0] in
+                    {"cpe", "gcc", "gcc-native", "cce"})
+    if not all(re.fullmatch(r"[A-Za-z0-9_./+@-]+", name) for name in required):
+        raise ValueError("Unexpected module name in the Cray build environment")
+    return list(dict.fromkeys(required))
+
+
+def write_modulefile(path, prefix, tag, compiler, target, required):
+    path.parent.mkdir(parents=True)
+    modules = " ".join(f"{{{name}}}" for name in required)
+    path.write_text(
+        "#%Module1.0\n"
+        f"module-whatis {{LAMMPS {tag} ({compiler}/{target})}}\n"
+        f"module-whatis {{Required modules: {' '.join(required)}}}\n"
+        f"set required [list {modules}]\n"
+        "if {[module-info mode load]} {\n"
+        "    set missing {}\n"
+        "    foreach name $required {\n"
+        "        if {![is-loaded $name]} { lappend missing $name }\n"
+        "    }\n"
+        "    if {[llength $missing]} {\n"
+        '        error "LAMMPS requires the following modules to be loaded first: [join $missing {, }]. '
+        'Select the matching Cray environment, then retry."\n'
+        "    }\n"
+        "}\n"
+        f"prepend-path PATH [file join {{{prefix}}} bin]\n",
+        encoding="utf-8",
+    )
+
+
 def build(args, work, stage):
     if args.source:
         archive, receipt = import_archive(args.source, args.release, args.sha256, work)
@@ -58,7 +93,16 @@ def build(args, work, stage):
     else:
         archive, receipt = staged_source(SOURCES, args.release)
 
-    source = extract_source(archive, work, receipt["tag"])
+    tag = receipt["tag"]
+    module_version = args.module_version or f"{tag}-{args.compiler}-{args.target}"
+    module_name = Path("lammps") / module_version
+    module_link = args.module_root / module_name if args.module_root else None
+    if module_link:
+        module_link.parent.mkdir(parents=True, exist_ok=True)
+        if os.path.lexists(module_link):
+            raise ValueError(f"Module path already exists: {module_link}")
+
+    source = extract_source(archive, work, tag)
     print(f"Building {receipt['tag']} ({args.compiler}/{args.target}); logs: {work}", flush=True)
     flags = offline_flags(source) if not args.online else []
     command = ["bash", str(ROOT / "build.sh"), args.compiler, args.target,
@@ -83,11 +127,15 @@ def build(args, work, stage):
     package_hash = sha256(work / "packages.cmake")
     if sha256(args.packages) != package_hash:
         raise ValueError(f"Package configuration changed during the build: {args.packages}")
+    module_path = Path("modulefiles") / module_name
+    required = runtime_modules(work / "runtime-modules.txt")
+    write_modulefile(installed / module_path, args.prefix, tag, args.compiler, args.target, required)
     receipt.update({"compiler": args.compiler, "target": args.target, "prefix": str(args.prefix),
                     "executable": args.executable,
+                    "modulefile": str(module_path), "required_modules": required,
                     "packages_sha256": package_hash, "build_directory": str(work)})
     (installed / "build-info.json").write_text(json.dumps(receipt, indent=2) + "\n")
-    return installed
+    return installed, module_path, module_name, module_link, required
 
 
 def main():
@@ -104,6 +152,8 @@ def main():
     parser.add_argument("--prefix", type=Path, required=True, help="new variant installation directory")
     parser.add_argument("--packages", type=Path, default=ROOT / "packages.cmake")
     parser.add_argument("--build-root", type=Path, default=ROOT / "build", help="scratch parent for run logs and objects")
+    parser.add_argument("--module-root", type=Path, help="also publish the modulefile in this MODULEPATH directory")
+    parser.add_argument("--module-version", help="modulefile name under lammps/ (default: release-compiler-target)")
     parser.add_argument("--jobs", type=int, default=4, help="parallel build jobs (default: 4)")
     args = parser.parse_args()
     if args.offline and args.release == "latest":
@@ -118,6 +168,8 @@ def main():
         args.machine = "kokkos_cuda_cray" if args.target == "gpu" else ""
     if not re.fullmatch(r"[A-Za-z0-9_+-]*", args.machine):
         parser.error("--machine accepts letters, digits, underscores, plus signs, and hyphens")
+    if args.module_version is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", args.module_version):
+        parser.error("--module-version must be a single module version name")
     args.executable = "bin/lmp" + ("_" + args.machine if args.machine else "")
 
     args.packages = args.packages.expanduser().resolve(strict=True)
@@ -125,7 +177,13 @@ def main():
     prefix = args.prefix.expanduser().absolute()
     args.prefix = prefix.parent.resolve() / prefix.name
     args.build_root = args.build_root.expanduser().resolve()
-    for path in (ROOT, args.prefix, args.build_root):
+    if args.module_root:
+        args.module_root = args.module_root.expanduser().resolve()
+        if args.module_root == args.prefix / "modulefiles":
+            args.module_root = None
+        elif args.module_root == args.prefix or args.prefix in args.module_root.parents:
+            parser.error("--module-root must be outside the install prefix")
+    for path in filter(None, (ROOT, args.prefix, args.build_root, args.module_root)):
         if not re.fullmatch(r"/[A-Za-z0-9_./+@-]+", str(path)):
             parser.error(f"Use paths without spaces or shell punctuation: {path}")
     if args.prefix.exists() or args.prefix.is_symlink():
@@ -139,13 +197,22 @@ def main():
         work = Path(tempfile.mkdtemp(prefix=f"{args.compiler}-{args.target}-", dir=args.build_root))
         # Stage onto the install filesystem so publication is one atomic rename.
         with tempfile.TemporaryDirectory(prefix=".lammps-stage-", dir=args.prefix.parent) as directory:
-            installed = build(args, work, Path(directory))
+            installed, module_path, module_name, module_link, required = build(args, work, Path(directory))
             if args.prefix.exists() or args.prefix.is_symlink():
                 raise ValueError(f"Install prefix already exists: {args.prefix}")
             installed.rename(args.prefix)
+            if module_link:
+                try:
+                    module_link.symlink_to(args.prefix / module_path)
+                except OSError:
+                    args.prefix.rename(installed)
+                    raise
     finally:
         lock.rmdir()
     print(f"Installed {args.prefix / args.executable}")
+    module_root = args.module_root or args.prefix / "modulefiles"
+    print(f"Load the required modules first: {' '.join(required)}")
+    print(f"Then run: module use {module_root} && module load {module_name}")
 
 
 if __name__ == "__main__":

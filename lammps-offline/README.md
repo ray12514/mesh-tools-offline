@@ -56,11 +56,33 @@ for target in cpu gpu; do
   python3 install.py --offline --release "$tag" \
     --compiler "$compiler" --target "$target" \
     --prefix "$test_root/$compiler-$target" \
+    --module-root "$test_root/modulefiles" \
     --build-root "$BUILD_ROOT" --jobs 8 || break
 done
 ```
 
 Each build keeps a `build.log` and `obj/CMakeCache.txt` in the scratch directory printed at startup. The installed `build-info.json` records the source and package-file hashes. If you change the configuration and rerun, choose a fresh `test_root` such as `"$HOME/lammps-test/$tag-retry1"`. The installer requires a new prefix for each variant or rebuild.
+
+## Load the installed LAMMPS module
+
+The installer writes a Tcl modulefile under `<prefix>/modulefiles/lammps/<release>-<compiler>-<target>`. `--module-root` publishes a link under a directory you can add to `MODULEPATH`, such as the shared application module tree. Use `--module-version` if the site uses a different version name. The installer prints the module name and prerequisites, and records both in `build-info.json`.
+
+Choose the programming environment yourself using your site's normal master module or module commands. A GNU build requires the matching `PrgEnv-gnu` and Cray MPICH. A Cray build requires the matching `PrgEnv-cray` and Cray MPICH. GPU builds also require the matching CUDA module. The installer records the versions exposed by the module system at build time, including loaded CPE and GCC or CCE modules. An application module that finds a missing prerequisite stops and lists what the user needs to load. With a matching environment it adds the installation's `bin` directory to `PATH`. [Lmod Tcl modulefiles](https://lmod.readthedocs.io/en/latest/051_tcl_modulefiles.html) · [Environment Modules modulefiles](https://modules.readthedocs.io/en/latest/modulefile.html)
+
+For example, from a login shell with `PrgEnv-cray` loaded, switch to the GNU environment if that matches the build. Use the exact versions reported by the installer if the site defaults differ. Some sites load CUDA through `craype-accel-nvidia90`.
+
+```bash
+module swap PrgEnv-cray PrgEnv-gnu
+module list
+# Load any remaining required modules reported by the installer.
+module use "$test_root/modulefiles"
+module load "lammps/$tag-gnu-gpu"
+command -v lmp_kokkos_cuda_cray
+```
+
+In a fresh session, set `tag` and `test_root` to the values used during the home build. For shared installs, use the site's application module directory. When switching programming environments, unload the application module and load the variant built for the new environment.
+
+CMake adds eligible linker search paths to the installed runtime search path. Cray MPICH and CUDA can also load libraries through dependencies of the binary, and the runtime environment can affect which copies the loader selects. Keep the module checks and verify actual linkage through the Slurm smoke tests. [CMake install RPATH](https://cmake.org/cmake/help/latest/variable/CMAKE_INSTALL_RPATH_USE_LINK_PATH.html) · [Linux dynamic linker](https://man7.org/linux/man-pages/man8/ld.so.8.html)
 
 ## Run a Slurm smoke test
 
@@ -88,17 +110,19 @@ After the home tests pass, rebuild the validated variants using the same source 
 
 ```bash
 APP_ROOT=/path/to/existing/lammps
+APP_MODULE_ROOT=/path/to/site/modulefiles
 shared_root="$APP_ROOT/$tag"
 
 for target in cpu gpu; do
   python3 install.py --offline --release "$tag" \
     --compiler "$compiler" --target "$target" \
     --prefix "$shared_root/$compiler-$target" \
+    --module-root "$APP_MODULE_ROOT" \
     --build-root "$BUILD_ROOT" --jobs 8 || break
 done
 ```
 
-Set `smoke_root="$shared_root"` and rerun the Slurm checks against the shared binaries. Compare `build-info.json` for each home and shared variant to confirm the source archive and package configuration match.
+Set `smoke_root="$shared_root"` and rerun the Slurm checks against the shared binaries. Compare `build-info.json` for each home and shared variant to confirm the source archive, package configuration, and required modules match.
 
 ## Build online
 

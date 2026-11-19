@@ -5,7 +5,7 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 lane=$1 target=$2 src=$3 work=$4 prefix=$5 stage=$6 packages=$7 jobs=$8 mode=$9 machine=${10}
 shift 10
 # shellcheck source=load-env.sh
-source "$root/load-env.sh" "$lane" "$target"
+source "$root/load-env.sh" "$lane" "$target" "$work/runtime-modules.txt"
 module list
 
 if [[ $mode == offline ]]; then
