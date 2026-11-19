@@ -1,4 +1,18 @@
-# Offline Gmsh and ADMesh installation
+# Offline installers for Gmsh, ADMesh, and LAMMPS
+
+## LAMMPS
+
+Build CPU and NVIDIA H200 variants on Cray systems with CMake and Cray MPICH. See the [LAMMPS installer and Slurm smoke tests](lammps-offline/README.md).
+
+```sh
+git clone https://github.com/ray12514/mesh-tools-offline.git
+cd mesh-tools-offline/lammps-offline
+python3 prepare.py latest
+```
+
+In an existing checkout, update with `git pull --ff-only` before creating a new bundle.
+
+## Gmsh and ADMesh
 
 Build Gmsh 4.15.2 and ADMesh 0.98.5 on the target Linux cluster. Gmsh runs headless with its built-in geometry kernel, meshing, STL reparametrization, postprocessing and the GEO parser. Its release includes Eigen, GMM, ANN, MathEx and METIS for this configuration. STEP/IGES, OpenCASCADE, FLTK and the Gmsh SDK are outside this build profile. ADMesh installs its CLI, shared C library and headers.
 
