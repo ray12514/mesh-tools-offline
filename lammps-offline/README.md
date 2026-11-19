@@ -25,6 +25,8 @@ Check the CUDA module label on the target. `load-env.sh` selects `PrgEnv-gnu` or
 
 CPU C++ compilation and linkage use the selected Cray wrapper and its compiler. GPU builds use the upstream Kokkos launcher to compile CUDA-capable C++ with `nvcc` and a compatible `g++`. The final link goes through the selected Cray `CC` wrapper so it can add the Cray CUDA GTL. For a GPU build with `PrgEnv-cray`, load a compatible GNU host compiler if needed and set `CUDA_HOST_CXX` to its `g++`. Match that compiler's C++ runtime to the site CCE stack. The GPU build uses the Kokkos Serial host backend with OpenMP off. It defaults to `Kokkos_ARCH_NATIVE=ON`, so build on a node with the same CPU architecture as the H200 nodes, or set `KOKKOS_ARCH_NATIVE=OFF` when building on a different node type. [LAMMPS Kokkos build options](https://docs.lammps.org/Build_extras.html#kokkos) · [CUDA host compiler support](https://docs.nvidia.com/cuda/archive/12.9.2/cuda-installation-guide-linux/index.html#host-compiler-support-policy)
 
+The GPU build passes the loaded Cray MPICH include directory to `nvcc` because the Kokkos launcher bypasses `CC` when compiling CUDA. Look for `Cray MPICH headers for nvcc` in `build.log`. On sites that expose the path through `MPICH_DIR`, the header is at `$MPICH_DIR/include/mpi.h`. [HPCMP CUDA and MPI build guidance](https://centers.hpc.mil/users/docs/advancedTopics/Build_CUDA_src_with_MPI_when_mpih_not_found.html)
+
 ## Stage the offline source bundle
 
 From a connected machine, prepare the transfer bundle. Use `latest` or a specific tag. For an archive already downloaded, pass its tag and `--source /path/to/source.tar.gz`. Add `--sha256` with the upstream digest when available. The bundle includes a manifest with the resolved tag and archive hash.
